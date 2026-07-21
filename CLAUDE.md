@@ -27,7 +27,7 @@ pnpm pack                 # tarball must contain only bin/, src/, README, LICENS
 
 Run a single test: `pnpm vitest run test/<file>.test.mjs -t "<name>"`.
 
-CLI flags: `--cwd <dir>`, `--json`, `--check-updates`, `--overrides <file>`, `--no-color` (also honors `NO_COLOR` env).
+CLI flags: `--cwd <dir>`, `--json`, `--check-updates`, `--all` (show `OK` rows, hidden by default), `--overrides <file>`, `--no-color` (also honors `NO_COLOR` env).
 
 Exit codes: `0` no BLOCKER · `1` ≥1 BLOCKER · `2` no `node_modules` found.
 
@@ -40,7 +40,8 @@ Exit codes: `0` no BLOCKER · `1` ≥1 BLOCKER · `2` no `node_modules` found.
 
 ## Module layout (target)
 
-- `bin/ts7-scan.mjs` — thin entry: flag parsing + orchestration.
+- `bin/ts7-scan.mjs` — thin entry: flag parsing, calls `scan()`/`renderReport`, sets exit code. No orchestration logic of its own.
+- `src/index.mjs` — pure orchestration (`scan`, `checkUpdates`) and the package `exports` entry; re-exports the module API. No console output.
 - `src/discover.mjs` — `collectNmDirs`, `listInstalled`. Monorepo-aware discovery.
 - `src/analyze.mjs` — `tsRangeOf`, `admitsTs7`, `usesCompilerApi`, `classify`.
 - `src/overrides.mjs` — `loadOverrides` + merge.

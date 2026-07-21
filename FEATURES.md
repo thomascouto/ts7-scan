@@ -29,12 +29,14 @@ Implemente ponta a ponta uma CLI npm chamada **`ts7-scan`**: uma varredura **100
 
 ### Sinais e classificação
 Para cada lib relevante, derive:
+- `range` + `src`: `tsRangeOf(pkg)` retorna `{ range, src }` onde `src ∈ 'peer' | 'dep' | 'dev'` — **onde** o range foi declarado importa para o consumidor (peer/dep afeta o *seu* build; dev-only é só como a lib se constrói). `peerDependencies` tem prioridade, depois `dependencies`, depois `devDependencies`.
 - `admitsTs7`: `semver.satisfies('7.0.0', range, { includePrerelease: true })` → `true | false | null` (null = range não avaliável, ex.: `workspace:*`). `*` e `latest` contam como true.
 - `usesApi`: heurística estática — leia os entrypoints (`main`, `module`, arquivos `.js/.mjs/.cjs` referenciados em `exports`, e `index.js`) e marque true se o arquivo importa/require `typescript` **e** menciona símbolos da Compiler API (`createProgram`, `transpileModule`, `createLanguageService`, `createPrinter`, `createSourceFile`, `getTypeChecker`, `createWatchProgram`, `createCompilerHost`, `transformNodes`, `createTypeChecker`, `LanguageServiceHost`).
 
 Status (nesta ordem de precedência):
 - `BLOCKER` — `usesApi && admitsTs7 !== true`
-- `REVIEW` — `admitsTs7 === false`
+- `OK` (curto-circuito) — `src === 'dev'`: um range só em `devDependencies` foi usado pela lib para construir a si mesma e não carrega risco para o consumidor, então nunca vira `BUMP`. (Ainda pode ser `BLOCKER` acima se de fato chama a Compiler API.) Esta é a regra-chave de sinal-vs-ruído.
+- `BUMP` — `admitsTs7 === false` (range peer/dep exclui 7 → provável só bump de versão da lib)
 - `UNKNOWN` — `admitsTs7 === null`
 - `OK` — resto
 
@@ -42,29 +44,32 @@ Status (nesta ordem de precedência):
 Arquivo `ts7-overrides.json` (procurado no `--cwd`, ou apontado via `--overrides <arquivo>`), formato `{ "<lib>": { "compatible": true|false, "note": "..." } }`. Um override sobrescreve a heurística (`compatible: true` → OK, `false` → BLOCKER), marca a linha com `(ovr)` e exibe a `note`.
 
 ### Flags
-`--cwd <dir>`, `--json`, `--check-updates` (consulta `https://registry.npmjs.org/<name>/latest` só para as libs REVIEW e informa se a última versão publicada já admite 7), `--overrides <arquivo>`, `--no-color` (também respeitar env `NO_COLOR`).
+`--cwd <dir>`, `--json`, `--check-updates` (consulta `https://registry.npmjs.org/<name>/latest` só para as libs BUMP — `admitsTs7 === false` — e informa se a última versão publicada já admite 7), `--all` (inclui as linhas `OK` na tabela, ocultas por padrão), `--overrides <arquivo>`, `--no-color` (também respeitar env `NO_COLOR`).
 
 ### Exit codes
 `0` sem BLOCKER · `1` com ≥1 BLOCKER · `2` nenhum `node_modules` encontrado.
 
 ### Saída padrão: tabela emoldurada no console
-- Moldura box-drawing (`┌┬┐ ├┼┤ └┴┘ │ ─`), colunas: STATUS, LIB, VER, TS RANGE, API, UPDATE.
-- Cores ANSI diretas (sem lib): BLOCKER vermelho `✖`, REVIEW amarelo `▲`, UNKNOWN cinza `?`, OK verde `✔`; coluna API em magenta quando a lib usa a Compiler API; cabeçalho em bold; VER em cinza.
+- Moldura box-drawing (`┌┬┐ ├┼┤ └┴┘ │ ─`), colunas: STATUS, LIB, VER, TS RANGE, SRC, WHY, UPDATE.
+- Coluna `SRC` mostra onde o range foi declarado (`peer`/`dep`/`dev`); coluna `WHY` é a razão de uma linha (ex.: `calls Compiler API`, `you supply TS; range excludes 7`, `range not evaluable`).
+- Cores ANSI diretas (sem lib): BLOCKER vermelho `✖`, BUMP amarelo `▲`, UNKNOWN cinza `?`, OK verde `✔`; cabeçalho em bold; VER e colunas auxiliares em cinza.
 - **Crítico:** larguras de coluna calculadas pela largura *visível* (strip de escapes ANSI via regex antes de medir) — cor nunca pode desalinhar a moldura.
 - Nota de override renderizada numa linha própria que ocupa a largura interna total da tabela (`↳ ...`).
-- Rodapé: chips de contagem por status + legenda em cinza.
-- Ordenação: BLOCKER → REVIEW → UNKNOWN → OK, alfabético dentro do grupo.
+- Rodapé: chips de contagem por status + legenda em cinza; quando há `OK` ocultas, uma dica `(N OK hidden — pass --all to show them)`.
+- Por padrão a tabela **oculta as linhas `OK`** (passe `--all` para mostrá-las); `--json` sempre emite todas as linhas.
+- Ordenação: BLOCKER → BUMP → UNKNOWN → OK, alfabético dentro do grupo.
 - `--json` imprime `{ scanned: { nodeModulesDirs, libs }, overrides, rows }` e mantém os exit codes.
 
 ## Estrutura do projeto
 
 ```
 ts7-scan/
-├── bin/ts7-scan.mjs        # entry fino: parse de flags + orquestração
+├── bin/ts7-scan.mjs        # entry fino: só parse de flags → chama scan()/render
 ├── src/
+│   ├── index.mjs           # orquestração pura (scan, checkUpdates); é o `exports` do pacote
 │   ├── discover.mjs        # collectNmDirs, listInstalled (monorepo/pnpm)
 │   ├── analyze.mjs         # tsRangeOf, admitsTs7, usesCompilerApi, classify
-│   ├── overrides.mjs       # loadOverrides + merge
+│   ├── overrides.mjs       # loadOverrides + applyOverride
 │   ├── registry.mjs        # latestAdmitsTs7 (fetch, tolerante a falha de rede)
 │   └── render.mjs          # tabela emoldurada + vlen/padEndV + chips/legenda
 ├── test/                   # vitest
@@ -83,8 +88,8 @@ Instale `vitest` como devDependency e cubra no mínimo:
 1. **`admitsTs7`** — tabela de casos: `^5.0.0→false`, `>=5.0.0→true`, `>=4.5 <7→false`, `*→true`, `workspace:*→null`, `latest→true`, range inválido→null.
 2. **`collectNmDirs`** — fixture em dir temporário (`fs.mkdtemp`) simulando: node_modules raiz, workspace com node_modules próprio, e store `.pnpm/x@1.0.0/node_modules`; afirmar que os três são encontrados e que não desce dentro de node_modules pela árvore normal.
 3. **`usesCompilerApi`** — lib que requer `typescript` e chama `createProgram` → true; lib que só requer `typescript` sem símbolos de API → false; lib sem entrypoint legível → false (sem throw).
-4. **Classificação** — os 4 status a partir de combinações de `usesApi`/`admitsTs7`, e precedência do override nos dois sentidos.
-5. **Render** — `vlen` ignora escapes ANSI; com `--no-color` a saída não contém `\x1b[`; larguras de moldura consistentes (todas as linhas da tabela com a mesma largura visível).
+4. **Classificação** — os 4 status a partir de combinações de `usesApi`/`admitsTs7`/`src`, incluindo o curto-circuito `dev`-only → OK (e que um `dev` que chama a API ainda vira BLOCKER), e precedência do override nos dois sentidos.
+5. **Render** — `vlen` ignora escapes ANSI; com `--no-color` a saída não contém `\x1b[`; larguras de moldura consistentes (todas as linhas da tabela com a mesma largura visível); `--all` mostra as linhas `OK`, ocultas por padrão.
 6. **E2E da CLI** — spawn do bin contra fixtures: exit 1 com blocker, exit 0 sem, exit 2 sem node_modules, `--json` parseável.
 
 Use fixtures montadas em `beforeEach` com dirs temporários — sem mock de fs. Para `registry.mjs`, mock de `fetch` (não bater na rede em teste).
@@ -105,7 +110,7 @@ O arquivo abaixo é um protótipo funcional single-file já testado (inclusive c
 // ts7-scan — varredura estática de compatibilidade de dependências com TypeScript 7 (tsc nativo).
 //
 // O que ele infere (do mais confiável ao mais fraco):
-//   1. A lib depende de `typescript`? (peerDependencies/dependencies)  -> é candidata a quebrar
+//   1. A lib depende de `typescript`? E ONDE? (peer/dep afeta você; dev-only é só como ela se constrói)
 //   2. O range de `typescript` declarado ADMITE 7.x?                    -> compat declarada pelo autor
 //   3. A lib CHAMA a Compiler API? (createProgram, transpileModule...)  -> quebra dura no 7.0 (que não tem API)
 //   4. (--check-updates) Existe versão publicada que já admite 7?       -> upgrade disponível
@@ -117,7 +122,7 @@ O arquivo abaixo é um protótipo funcional single-file já testado (inclusive c
 // Não executa nada das libs: é 100% estático. Saída = lista de risco priorizada, não um "sim/não" definitivo.
 //
 // Uso:
-//   node ts7-scan.mjs [--json] [--check-updates] [--cwd <dir>] [--overrides <arquivo>] [--no-color]
+//   node ts7-scan.mjs [--json] [--check-updates] [--cwd <dir>] [--overrides <arquivo>] [--all] [--no-color]
 // Como npx (depois de publicar): npx ts7-scan --check-updates
 //
 // Overrides: um JSON { "<lib>": { "compatible": true|false, "note": "..." } }.
@@ -125,16 +130,14 @@ O arquivo abaixo é um protótipo funcional single-file já testado (inclusive c
 
 import fs from 'node:fs';
 import path from 'node:path';
+import semver from 'semver'; // única dependência de runtime
 
 const argv = process.argv.slice(2);
 const asJson = argv.includes('--json');
 const checkUpdates = argv.includes('--check-updates');
+const showAll = argv.includes('--all'); // por padrão as linhas OK ficam ocultas
 const argVal = (flag) => { const i = argv.indexOf(flag); return i >= 0 ? argv[i + 1] : null; };
 const cwd = argVal('--cwd') ? path.resolve(argVal('--cwd')) : process.cwd();
-
-// semver é opcional: se não estiver instalado, caímos num teste conservador e marcamos "unknown".
-let semver = null;
-try { semver = (await import('semver')).default ?? (await import('semver')); } catch { /* noop */ }
 
 const TS7 = '7.0.0';
 const API_SYMBOLS = [
@@ -193,25 +196,21 @@ function* listInstalled(nmDir) {
   }
 }
 
-// Range de `typescript` que a lib declara (peer tem prioridade sobre dep).
+// Range de `typescript` que a lib declara + ONDE (peer > dep > dev). O `src`
+// importa para o consumidor: peer/dep afeta o seu build, dev-only não.
 function tsRangeOf(pkg) {
-  return pkg.peerDependencies?.typescript
-      ?? pkg.dependencies?.typescript
-      ?? pkg.devDependencies?.typescript
-      ?? null;
+  if (pkg.peerDependencies?.typescript != null) return { range: pkg.peerDependencies.typescript, src: 'peer' };
+  if (pkg.dependencies?.typescript != null) return { range: pkg.dependencies.typescript, src: 'dep' };
+  if (pkg.devDependencies?.typescript != null) return { range: pkg.devDependencies.typescript, src: 'dev' };
+  return { range: null, src: null };
 }
 
 // A lib admite TS 7 no range declarado?  -> true | false | null(desconhecido)
 function admitsTs7(range) {
   if (!range || range === '*' || range === 'latest') return true;
-  if (semver) {
-    try { return semver.satisfies(TS7, range, { includePrerelease: true }); } catch { return null; }
-  }
-  // Fallback conservador, sem semver: só afirma nos casos óbvios.
-  if (/(^|\|)\s*>=?\s*[567]/.test(range)) return true;
-  if (/\^[0-5]\b|~[0-5]\b|<\s*7|\b[1-5]\.x\b/.test(range)) return false;
-  if (/\b7(\.|x|\b)/.test(range)) return true;
-  return null;
+  const opts = { includePrerelease: true };
+  if (semver.validRange(range, opts) == null) return null; // workspace:*, exótico
+  return semver.satisfies(TS7, range, opts);
 }
 
 // A lib de fato chama a Compiler API? Heurística: lê o entry principal e faz um scan raso do dir.
@@ -257,7 +256,7 @@ for (const nmDir of nmDirs) {
   for (const dir of listInstalled(nmDir)) {
     const pkg = readJSON(path.join(dir, 'package.json'));
     if (!pkg?.name) continue;
-    const range = tsRangeOf(pkg);
+    const { range, src } = tsRangeOf(pkg);
     if (!range) continue; // não toca em TypeScript -> irrelevante para este check
     const key = `${pkg.name}@${pkg.version ?? '?'}`;
     if (seen.has(key)) { if (!seen.get(key).usesApi) seen.get(key).usesApi = usesCompilerApi(dir, pkg); continue; }
@@ -265,6 +264,7 @@ for (const nmDir of nmDirs) {
       name: pkg.name,
       installed: pkg.version ?? '?',
       tsRange: range,
+      src,
       admitsTs7: admitsTs7(range),
       usesApi: usesCompilerApi(dir, pkg),
     });
@@ -289,9 +289,11 @@ if (checkUpdates) {
 }
 
 // ---- classificação (heurística → override) ----
+// Precedência: BLOCKER → (dev-only curto-circuita p/ OK) → BUMP → UNKNOWN → OK.
 const heuristicBucket = r =>
   r.usesApi && r.admitsTs7 !== true ? 'BLOCKER'
-  : r.admitsTs7 === false ? 'REVIEW'
+  : r.src === 'dev' ? 'OK'          // typescript só em devDependencies: como a lib se constrói, não é seu problema
+  : r.admitsTs7 === false ? 'BUMP'
   : r.admitsTs7 === null ? 'UNKNOWN'
   : 'OK';
 for (const r of rows) {
@@ -315,12 +317,19 @@ if (asJson) {
 const ESC = String.fromCharCode(27);
 const noColor = argv.includes('--no-color') || process.env.NO_COLOR;
 const c = (code, s) => noColor ? String(s) : `${ESC}[${code}m${s}${ESC}[0m`;
-const CLR = { BLOCKER: 31, REVIEW: 33, UNKNOWN: 90, OK: 32 };
-const ICON = { BLOCKER: '✖', REVIEW: '▲', UNKNOWN: '?', OK: '✔' };
+const CLR = { BLOCKER: 31, BUMP: 33, UNKNOWN: 90, OK: 32 };
+const ICON = { BLOCKER: '✖', BUMP: '▲', UNKNOWN: '?', OK: '✔' };
 const dim = s => c(90, s);
 const bold = s => c(1, s);
 
-const order = { BLOCKER: 0, REVIEW: 1, UNKNOWN: 2, OK: 3 };
+// Razão de uma linha (coluna WHY).
+const whyOf = r =>
+  r.status === 'BLOCKER' ? 'calls Compiler API'
+  : r.status === 'BUMP' ? (r.src === 'peer' ? 'you supply TS; range excludes 7' : 'bundles TS; range excludes 7')
+  : r.status === 'UNKNOWN' ? 'range not evaluable'
+  : '';
+
+const order = { BLOCKER: 0, BUMP: 1, UNKNOWN: 2, OK: 3 };
 rows.sort((a, b) => order[a.status] - order[b.status] || a.name.localeCompare(b.name));
 
 const ANSI_RE = new RegExp(`${ESC}\\[[0-9;]*m`, 'g');
@@ -328,9 +337,11 @@ const vlen = s => String(s).replace(ANSI_RE, '').length;          // largura vis
 const padEndV = (s, w) => s + ' '.repeat(Math.max(0, w - vlen(s)));
 const padStartV = (s, w) => ' '.repeat(Math.max(0, w - vlen(s))) + s;
 
-const HEAD = ['STATUS', 'LIB', 'VER', 'TS RANGE', 'API', 'UPDATE'];
-const ALIGN = ['l', 'l', 'l', 'l', 'c', 'l'];
-const body = rows.map(r => {
+const HEAD = ['STATUS', 'LIB', 'VER', 'TS RANGE', 'SRC', 'WHY', 'UPDATE'];
+const ALIGN = ['l', 'l', 'l', 'l', 'l', 'l', 'l'];
+const okCount = n('OK');
+const visible = showAll ? rows : rows.filter(r => r.status !== 'OK'); // OK ocultas por padrão
+const body = visible.map(r => {
   const upd = r.latest
     ? (r.latestAdmitsTs7 ? c(32, `↑ ${r.latest}`) : c(31, `↑ ${r.latest}`))
     : dim('—');
@@ -341,7 +352,8 @@ const body = rows.map(r => {
       r.name + (r.override ? dim(' (ovr)') : ''),
       dim(r.installed),
       r.tsRange,
-      r.usesApi ? c(35, 'API') : dim('·'),
+      dim(r.src ?? '—'),
+      dim(whyOf(r)),
       upd,
     ],
   };
@@ -380,12 +392,15 @@ console.log(out.join('\n'));
 
 const chip = (s) => c(CLR[s], `${ICON[s]} ${n(s)} ${s}`);
 console.log();
-console.log('  ' + [chip('BLOCKER'), chip('REVIEW'), chip('UNKNOWN'), chip('OK')].join('    '));
+console.log('  ' + [chip('BLOCKER'), chip('BUMP'), chip('UNKNOWN'), chip('OK')].join('    '));
+if (!showAll && okCount > 0) console.log('  ' + dim(`(${okCount} OK hidden — pass --all to show them)`));
 console.log();
-console.log(dim('  ✖ BLOCKER  usa a Compiler API e o range não admite 7 → mantenha em tsc6 até o 7.1'));
-console.log(dim('  ▲ REVIEW   peer-depende mas range exclui 7 → provável só bump de versão'));
-console.log(dim('  ? UNKNOWN  range não avaliável sem `semver` (npm i -D semver) ou exótico'));
+console.log(dim('  ✖ BLOCKER  usa a Compiler API e o range não admite 7 → mantenha em tsc6 (@typescript/typescript6) até o 7.1'));
+console.log(dim('  ▲ BUMP     um range peer/dep de typescript exclui 7 → espere ou migre para um release mais novo da lib'));
+console.log(dim('  ? UNKNOWN  range peer/dep não avaliável (workspace:*, dist-tag como "next", ou exótico)'));
 console.log(dim('  ↑ UPDATE   versão publicada que já admite 7 (com --check-updates)'));
+console.log(dim('  SRC        onde o range de typescript foi declarado — peer/dep pode afetar você; dev-only é'));
+console.log(dim('             a lib se construindo e é reportado OK (nunca BUMP)'));
 console.log(dim('  (ovr)      veredicto veio do ts7-overrides.json, não da heurística'));
 console.log();
 process.exit(n('BLOCKER') > 0 ? 1 : 0);
