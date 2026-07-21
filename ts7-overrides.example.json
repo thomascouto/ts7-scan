@@ -1,0 +1,10 @@
+{
+  "some-lib-that-already-fixed-it": {
+    "compatible": true,
+    "note": "Migrated to @typescript/typescript6 in v4.2 — safe under TS 7."
+  },
+  "some-lib-still-broken": {
+    "compatible": false,
+    "note": "Calls ts.createProgram at import time; no TS7-safe release yet."
+  }
+}

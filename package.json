@@ -1,0 +1,48 @@
+{
+  "name": "ts7-scan",
+  "version": "1.0.0",
+  "description": "Static scan that classifies installed dependencies by risk of breaking under TypeScript 7 (native tsc).",
+  "keywords": [
+    "typescript",
+    "typescript7",
+    "tsc",
+    "compatibility",
+    "dependencies",
+    "static-analysis",
+    "cli"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "ts7-scan": "bin/ts7-scan.mjs"
+  },
+  "exports": {
+    ".": "./src/index.mjs"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "start": "node bin/ts7-scan.mjs"
+  },
+  "dependencies": {
+    "semver": "^7.8.5"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.7.0",
+    "globals": "^17.7.0",
+    "vitest": "^4.1.10"
+  },
+  "packageManager": "pnpm@10.18.1",
+  "author": "Thomas Couto <thomascouto@gmail.com>"
+}

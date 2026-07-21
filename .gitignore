@@ -1,0 +1,20 @@
+# Dependencies
+node_modules/
+
+# Test / coverage output
+coverage/
+
+# npm pack artifacts
+*.tgz
+
+# Logs
+*.log
+
+# Editor / OS cruft
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Local direnv / tooling config
+.envrc
