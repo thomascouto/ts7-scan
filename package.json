@@ -1,6 +1,6 @@
 {
   "name": "ts7-scan",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Static scan that classifies installed dependencies by risk of breaking under TypeScript 7 (native tsc).",
   "keywords": [
     "typescript",
