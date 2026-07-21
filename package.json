@@ -45,5 +45,13 @@
     "vitest": "^4.1.10"
   },
   "packageManager": "pnpm@10.18.1",
-  "author": "Thomas Couto <thomascouto@gmail.com>"
+  "author": "Thomas Couto <thomascouto@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/thomascouto/ts7-scan.git"
+  },
+  "homepage": "https://github.com/thomascouto/ts7-scan#readme",
+  "bugs": {
+    "url": "https://github.com/thomascouto/ts7-scan/issues"
+  }
 }
