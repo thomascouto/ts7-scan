@@ -1,3 +1,9 @@
+[![npm version](https://img.shields.io/npm/v/ts7-scan.svg)](https://www.npmjs.com/package/ts7-scan)
+[![npm downloads](https://img.shields.io/npm/dm/ts7-scan.svg)](https://www.npmjs.com/package/ts7-scan)
+[![total downloads](https://img.shields.io/npm/dt/ts7-scan.svg)](https://www.npmjs.com/package/ts7-scan)
+[![License](https://img.shields.io/npm/l/ts7-scan.svg)](https://www.npmjs.com/package/ts7-scan)
+[![Bundle Size](https://img.shields.io/bundlephobia/min/ts7-scan.svg)](https://bundlephobia.com/result?p=ts7-scan)
+
 # ts7-scan
 
 Static scan that classifies your **installed** dependencies by risk of breaking
