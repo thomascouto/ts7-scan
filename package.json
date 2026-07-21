@@ -32,7 +32,8 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "start": "node bin/ts7-scan.mjs"
+    "start": "node bin/ts7-scan.mjs",
+    "prepublishOnly": "pnpm lint && pnpm test"
   },
   "dependencies": {
     "semver": "^7.8.5"
