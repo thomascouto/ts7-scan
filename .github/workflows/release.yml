@@ -48,10 +48,13 @@ jobs:
       - name: Test
         run: pnpm test
 
-      - name: Publish to npm
-        run: pnpm publish --no-git-checks --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # OIDC trusted publishing needs npm >= 11.5.1; Node 24's bundled npm may
+      # be older, and pnpm has no OIDC support — so publish with npm directly.
+      - name: Update npm
+        run: npm install -g npm@latest
+
+      - name: Publish to npm (OIDC trusted publishing)
+        run: npm publish --access public
 
       - name: Create GitHub Release
         run: gh release create "$GITHUB_REF_NAME" --generate-notes --verify-tag
